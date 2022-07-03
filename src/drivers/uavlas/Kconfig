@@ -1,0 +1,5 @@
+menuconfig DRIVERS_UAVLAS
+	bool "uavlas"
+	default n
+	---help---
+		Enable support for uavlas

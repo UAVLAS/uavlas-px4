@@ -198,3 +198,9 @@ then
 	# start last (wait for possible icm20948 passthrough mode)
 	ak09916 -X -q start
 fi
+
+# UAVLAS landing target sensor external I2C
+if param compare -s SENS_EN_UAVLAS 1
+then
+	uavlas start -X
+fi
