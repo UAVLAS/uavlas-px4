@@ -195,14 +195,18 @@ jobs:
          repo: ULSPX4-Releases
          commitish: main
 
-    - name: Upload Artifacts
-      run: |
-        cd ./assets
-        ls -a
-        hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
-      env:
-        GITHUB_TOKEN: ${{ secrets.YK_PAT }}
-
+ #   - name: Upload Artifacts
+ #     run: |
+ #       cd ./assets
+ #       ls -a
+ #       hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
+ #     env:
+ #       GITHUB_TOKEN: ${{ secrets.YK_PAT }}
+    - uses: actions/upload-artifact@v3
+      with:
+        name: uls-artifact
+        path: ./assets
+    
     - name: Publish release
       uses: actions/github-script@v3
       with:
