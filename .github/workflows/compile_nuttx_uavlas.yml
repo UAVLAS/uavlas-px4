@@ -195,13 +195,16 @@ jobs:
     #      repo: ULSPX4-Releases
     #      commitish: main
 
+# Create a filtered zip of the repository.
+    - name: Zip Repository (excludes .git*)
+      run: |
+        echo "Compressing assets..."
+        zip -r PX4-AllDevices-UAVLAS-${{steps.version.outputs.TAG_VERSION}}.zip assets
+
     - name: Create Release
       run: |
-        cd ${{ github.workspace }}/assets
-        echo "All artifacts list:"
-        ls -a
         echo "Uploading artifacts"
-        gh release create release-uls-${{steps.version.outputs.TAG_VERSION}} -t "Px4 firmware with UAVLAS devices Support - ${{steps.version.outputs.TAG_VERSION}}" -F ./info/info.md  ${{ github.workspace }}/assets/*.*
+        gh release create release-uls-${{steps.version.outputs.TAG_VERSION}} -t "Px4 firmware with UAVLAS devices Support - ${{steps.version.outputs.TAG_VERSION}}" -F ./info/info.md  PX4-AllDevices-UAVLAS-${{steps.version.outputs.TAG_VERSION}}.zip
        # hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
       env:
         GITHUB_TOKEN: ${{ secrets.YK_PAT }}
