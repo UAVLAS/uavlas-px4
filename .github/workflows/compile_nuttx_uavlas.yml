@@ -180,38 +180,39 @@ jobs:
            git push --tags
            git push
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-          GITHUB_TOKEN: ${{ secrets.YK_PAT }}
-      with:
-         tag_name: release-uls-${{steps.version.outputs.TAG_VERSION}}
-         release_name: Px4 firmware with UAVLAS devices Support - ${{steps.version.outputs.TAG_VERSION}}
-         body_path: ./assets/info/info.md
-         draft: true
-         prerelease: true
-         owner: uavlas
-         repo: ULSPX4-Releases
-         commitish: main
+    # - name: Create Release
+    #   id: create_release
+    #   uses: actions/create-release@v1
+    #   env:
+    #       GITHUB_TOKEN: ${{ secrets.YK_PAT }}
+    #   with:
+    #      tag_name: release-uls-${{steps.version.outputs.TAG_VERSION}}
+    #      release_name: Px4 firmware with UAVLAS devices Support - ${{steps.version.outputs.TAG_VERSION}}
+    #      body_path: ./assets/info/info.md
+    #      draft: true
+    #      prerelease: true
+    #      owner: uavlas
+    #      repo: ULSPX4-Releases
+    #      commitish: main
 
-    - name: Upload Artifacts
+    - name: Create Release
       run: |
         cd ${{ github.workspace }}/assets
         echo "All artifacts list:"
         ls -a
         echo "Uploading artifacts"
-      #  hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
+        hub release edit release-uls-${{steps.version.outputs.TAG_VERSION}} ./assets/*.*
+       # hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
       env:
         GITHUB_TOKEN: ${{ secrets.YK_PAT }}
 
-    - uses: actions/upload-artifact@v3
-      with:
-        name: uls-package
-        if-no-files-found: error # 'warn' or 'ignore' are also available, defaults to `warn`
-        path: |
-          assets/**/*.px4
-          assets/**/*.bin
+    # - uses: actions/upload-artifact@v3
+    #   with:
+    #     name: uls-package
+    #     if-no-files-found: error # 'warn' or 'ignore' are also available, defaults to `warn`
+    #     path: |
+    #       assets/**/*.px4
+    #       assets/**/*.bin
 
     - name: Publish release
       uses: actions/github-script@v3
