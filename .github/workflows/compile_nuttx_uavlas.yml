@@ -207,7 +207,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: uls-artifacts
-        path:
+        path: |
           ${{ github.workspace }}/assets/**/*.px4
           ${{ github.workspace }}/assets/**/*.bin
      # env:
