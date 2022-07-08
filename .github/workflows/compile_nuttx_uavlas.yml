@@ -51,11 +51,11 @@ jobs:
           # nxp_ucans32k146,
           # omnibus_f4sd,
           # raspberrypi_pico,
-          # px4_fmu-v2,
+           px4_fmu-v2,
           # px4_fmu-v3,
           # px4_fmu-v4,
           # px4_fmu-v4pro,
-          px4_fmu-v5,
+          #px4_fmu-v5,
           # px4_fmu-v5x,
           # px4_fmu-v6c,
           # px4_fmu-v6u,
@@ -207,7 +207,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: uls-artifact
-        path: ${{ github.workspace }}/assets
+        path: ${{ github.workspace }}/assets/**
       env:
         GITHUB_TOKEN: ${{ secrets.YK_PAT }}
     - name: Publish release
