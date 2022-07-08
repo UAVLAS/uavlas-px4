@@ -206,7 +206,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.YK_PAT }}
     - uses: actions/upload-artifact@v3
       with:
-        name: uls-artifacts
+        # name: uls-artifacts
         path: |
           ${{ github.workspace }}/assets/**/*.px4
           ${{ github.workspace }}/assets/**/*.bin
