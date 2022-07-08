@@ -13,56 +13,56 @@ jobs:
       fail-fast: false
       matrix:
         config: [
-          airmind_mindpx-v2,
-          ark_can-flow,
-          ark_can-gps,
-          ark_can-rtk-gps,
-          ark_cannode,
-          atl_mantis-edu,
-          av_x-v1,
-          bitcraze_crazyflie,
-          bitcraze_crazyflie21,
-          cuav_can-gps-v1,
-          cuav_nora,
-          cuav_x7pro,
-          cubepilot_cubeorange,
-          cubepilot_cubeyellow,
-          diatone_mamba-f405-mk2,
-          freefly_can-rtk-gps,
-          holybro_can-gps-v1,
-          holybro_durandal-v1,
-          holybro_kakutef7,
-          holybro_kakuteh7,
-          holybro_pix32v5,
-          matek_h743-slim,
-          matek_gnss-m9n-f4,
-          modalai_fc-v1,
-          modalai_fc-v2,
-          mro_ctrl-zero-f7,
-          mro_ctrl-zero-f7-oem,
-          mro_ctrl-zero-h7,
-          mro_ctrl-zero-h7-oem,
-          mro_pixracerpro,
-          mro_x21,
-          mro_x21-777,
-          nxp_fmuk66-e,
-          nxp_fmuk66-v3,
-          nxp_fmurt1062-v1,
-          nxp_ucans32k146,
-          omnibus_f4sd,
-          raspberrypi_pico,
-          px4_fmu-v2,
-          px4_fmu-v3,
-          px4_fmu-v4,
-          px4_fmu-v4pro,
+          # airmind_mindpx-v2,
+          # ark_can-flow,
+          # ark_can-gps,
+          # ark_can-rtk-gps,
+          # ark_cannode,
+          # atl_mantis-edu,
+          # av_x-v1,
+          # bitcraze_crazyflie,
+          # bitcraze_crazyflie21,
+          # cuav_can-gps-v1,
+          # cuav_nora,
+          # cuav_x7pro,
+          # cubepilot_cubeorange,
+          # cubepilot_cubeyellow,
+          # diatone_mamba-f405-mk2,
+          # freefly_can-rtk-gps,
+          # holybro_can-gps-v1,
+          # holybro_durandal-v1,
+          # holybro_kakutef7,
+          # holybro_kakuteh7,
+          # holybro_pix32v5,
+          # matek_h743-slim,
+          # matek_gnss-m9n-f4,
+          # modalai_fc-v1,
+          # modalai_fc-v2,
+          # mro_ctrl-zero-f7,
+          # mro_ctrl-zero-f7-oem,
+          # mro_ctrl-zero-h7,
+          # mro_ctrl-zero-h7-oem,
+          # mro_pixracerpro,
+          # mro_x21,
+          # mro_x21-777,
+          # nxp_fmuk66-e,
+          # nxp_fmuk66-v3,
+          # nxp_fmurt1062-v1,
+          # nxp_ucans32k146,
+          # omnibus_f4sd,
+          # raspberrypi_pico,
+          # px4_fmu-v2,
+          # px4_fmu-v3,
+          # px4_fmu-v4,
+          # px4_fmu-v4pro,
           px4_fmu-v5,
-          px4_fmu-v5x,
-          px4_fmu-v6c,
-          px4_fmu-v6u,
-          px4_fmu-v6x,
-          sky-drones_smartap-airlink,
-          spracing_h7extreme,
-          uvify_core
+          # px4_fmu-v5x,
+          # px4_fmu-v6c,
+          # px4_fmu-v6u,
+          # px4_fmu-v6x,
+          # sky-drones_smartap-airlink,
+          # spracing_h7extreme,
+          # uvify_core
           ]
     steps:
     - uses: actions/checkout@v1
@@ -195,18 +195,21 @@ jobs:
          repo: ULSPX4-Releases
          commitish: main
 
- #   - name: Upload Artifacts
- #     run: |
- #       cd ./assets
- #       ls -a
- #       hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
- #     env:
- #       GITHUB_TOKEN: ${{ secrets.YK_PAT }}
+    - name: Upload Artifacts
+      run: |
+        cd ${{ github.workspace }}/assets
+        echo "All artifacts list:"
+        ls -a
+        echo "Uploading artifacts"
+     # hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
+     #env:
+      # GITHUB_TOKEN: ${{ secrets.YK_PAT }}
     - uses: actions/upload-artifact@v3
       with:
         name: uls-artifact
-        path: ./assets
-    
+        path: ${{ github.workspace }}/assets
+      env:
+        GITHUB_TOKEN: ${{ secrets.YK_PAT }}
     - name: Publish release
       uses: actions/github-script@v3
       with:
