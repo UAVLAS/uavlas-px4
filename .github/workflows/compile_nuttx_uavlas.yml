@@ -208,10 +208,9 @@ jobs:
       with:
         name: uls-package
         path: |
-          /assets/**/*.px4
-          /assets/**/*.bin
-     # env:
-     #   GITHUB_TOKEN: ${{ secrets.YK_PAT }}
+          assets/**/*.px4
+          assets/**/*.bin
+
     - name: Publish release
       uses: actions/github-script@v3
       with:
