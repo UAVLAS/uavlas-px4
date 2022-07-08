@@ -214,14 +214,14 @@ jobs:
     #       assets/**/*.px4
     #       assets/**/*.bin
 
-    - name: Publish release
-      uses: actions/github-script@v3
-      with:
-         github-token: ${{secrets.YK_PAT}}
-         script: |
-            github.repos.updateRelease({
-              owner: "uavlas",
-              repo: "ULSPX4-Releases",
-              release_id: "${{ steps.create_release.outputs.id }}",
-              draft: false
-            });
+    # - name: Publish release
+    #   uses: actions/github-script@v3
+    #   with:
+    #      github-token: ${{secrets.YK_PAT}}
+    #      script: |
+    #         github.repos.updateRelease({
+    #           owner: "uavlas",
+    #           repo: "ULSPX4-Releases",
+    #           release_id: "${{ steps.create_release.outputs.id }}",
+    #           draft: false
+    #         });
