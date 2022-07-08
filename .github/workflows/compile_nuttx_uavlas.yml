@@ -204,9 +204,11 @@ jobs:
       #  hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
       env:
         GITHUB_TOKEN: ${{ secrets.YK_PAT }}
-    - uses: actions/upload-artifact@v2
+
+    - uses: actions/upload-artifact@v3
       with:
         name: uls-package
+        if-no-files-found: error # 'warn' or 'ignore' are also available, defaults to `warn`
         path: |
           assets/**/*.px4
           assets/**/*.bin
