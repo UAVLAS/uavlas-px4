@@ -200,20 +200,18 @@ jobs:
         cd ${{ github.workspace }}/assets
         echo "All artifacts list:"
         ls -a
-        echo "Find artifacts list:"
-        find . -type f -name "*.*" -printf "-a %p "
         echo "Uploading artifacts"
-        hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
+      #  hub release edit $(find . -type f -name "*.*" -printf "-a %p ") -m "" "release-uls-${{steps.version.outputs.TAG_VERSION}}"
       env:
         GITHUB_TOKEN: ${{ secrets.YK_PAT }}
-    # - uses: actions/upload-artifact@v3
-    #   with:
-    #     name: uls-artifact
-    #     path:
-    #       ${{ github.workspace }}/assets/**/*.px4
-    #       ${{ github.workspace }}/assets/**/*.bin
-    #   env:
-    #     GITHUB_TOKEN: ${{ secrets.YK_PAT }}
+    - uses: actions/upload-artifact@v3
+      with:
+        name: uls-artifacts
+        path:
+          ${{ github.workspace }}/assets/**/*.px4
+          ${{ github.workspace }}/assets/**/*.bin
+     # env:
+     #   GITHUB_TOKEN: ${{ secrets.YK_PAT }}
     - name: Publish release
       uses: actions/github-script@v3
       with:
