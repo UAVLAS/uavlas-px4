@@ -208,8 +208,10 @@ jobs:
       with:
         # name: uls-artifacts
         path: |
-          ${{ github.workspace }}/assets/**/*.px4
-          ${{ github.workspace }}/assets/**/*.bin
+          ./assets/info/info.md
+
+         # ${{ github.workspace }}/assets/**/*.px4
+         # ${{ github.workspace }}/assets/**/*.bin
      # env:
      #   GITHUB_TOKEN: ${{ secrets.YK_PAT }}
     - name: Publish release
