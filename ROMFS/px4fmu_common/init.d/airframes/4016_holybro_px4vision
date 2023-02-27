@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# @name PX4 Vision DevKit Platform
+# @name PX4 Vision Dev Kit v1
 #
 # @type Quadrotor x
 # @class Copter
