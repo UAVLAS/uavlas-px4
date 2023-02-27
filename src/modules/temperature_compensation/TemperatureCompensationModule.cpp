@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2016-2020, 2021 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2016-2021 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -194,7 +194,10 @@ void TemperatureCompensationModule::Run()
 	perf_begin(_loop_perf);
 
 	// Check if user has requested to run the calibration routine
-	while (_vehicle_command_sub.updated()) {
+	int vehicle_command_updates = 0;
+
+	while (_vehicle_command_sub.updated() && (vehicle_command_updates < vehicle_command_s::ORB_QUEUE_LENGTH)) {
+		vehicle_command_updates++;
 		vehicle_command_s cmd;
 
 		if (_vehicle_command_sub.copy(&cmd)) {

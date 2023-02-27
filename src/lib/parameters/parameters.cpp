@@ -45,7 +45,7 @@
 #include "param.h"
 #include "param_translation.h"
 #include <parameters/px4_parameters.hpp>
-#include "tinybson/tinybson.h"
+#include <lib/tinybson/tinybson.h>
 
 #include <crc32.h>
 #include <float.h>
@@ -1116,7 +1116,7 @@ int param_save_default()
 
 		for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
 			// write parameters to file
-			int fd = ::open(filename, O_WRONLY | O_CREAT, PX4_O_MODE_666);
+			int fd = ::open(filename, O_WRONLY | O_CREAT | O_TRUNC, PX4_O_MODE_666);
 
 			if (fd > -1) {
 				perf_begin(param_export_perf);
@@ -1155,7 +1155,7 @@ int param_save_default()
 
 		// backup file
 		if (param_backup_file) {
-			int fd_backup_file = ::open(param_backup_file, O_WRONLY | O_CREAT, PX4_O_MODE_666);
+			int fd_backup_file = ::open(param_backup_file, O_WRONLY | O_CREAT | O_TRUNC, PX4_O_MODE_666);
 
 			if (fd_backup_file > -1) {
 				int backup_export_ret = param_export_internal(fd_backup_file, nullptr);
@@ -1374,6 +1374,11 @@ static int param_export_internal(int fd, param_filter_func filter)
 	bson_encoder_s encoder{};
 	uint8_t bson_buffer[256];
 
+	if (lseek(fd, 0, SEEK_SET) != 0) {
+		PX4_ERR("export seek failed %d", errno);
+		return -1;
+	}
+
 	if (bson_encoder_init_buf_file(&encoder, fd, &bson_buffer, sizeof(bson_buffer)) != 0) {
 		goto out;
 	}
@@ -1517,38 +1522,6 @@ param_import_callback(bson_decoder_t decoder, bson_node_t node)
 }
 
 static int
-param_dump_callback(bson_decoder_t decoder, bson_node_t node)
-{
-	switch (node->type) {
-	case BSON_EOO:
-		PX4_INFO_RAW("BSON_EOO\n");
-		return 0;
-
-	case BSON_DOUBLE:
-		PX4_INFO_RAW("BSON_DOUBLE: %s = %.6f\n", node->name, node->d);
-		return 1;
-
-	case BSON_BOOL:
-		PX4_INFO_RAW("BSON_BOOL:   %s = %d\n", node->name, node->b);
-		return 1;
-
-	case BSON_INT32:
-		PX4_INFO_RAW("BSON_INT32:  %s = %" PRIi32 "\n", node->name, node->i32);
-		return 1;
-
-	case BSON_INT64:
-		PX4_INFO_RAW("BSON_INT64:  %s = %" PRIi64 "\n", node->name, node->i64);
-		return 1;
-
-	default:
-		PX4_INFO_RAW("ERROR %s unhandled bson type %d\n", node->name, node->type);
-		return 1; // just skip this entry
-	}
-
-	return -1;
-}
-
-static int
 param_import_internal(int fd)
 {
 	static constexpr int MAX_ATTEMPTS = 3;
@@ -1623,42 +1596,6 @@ param_load(int fd)
 
 	param_reset_all_internal(false);
 	return param_import_internal(fd);
-}
-
-int
-param_dump(int fd)
-{
-	bson_decoder_s decoder{};
-
-	if (bson_decoder_init_file(&decoder, fd, param_dump_callback) == 0) {
-		PX4_INFO_RAW("BSON document size %" PRId32 "\n", decoder.total_document_size);
-
-		int result = -1;
-
-		do {
-			result = bson_decoder_next(&decoder);
-
-		} while (result > 0);
-
-		if (result == 0) {
-			PX4_INFO_RAW("BSON decoded %" PRId32 " bytes (double:%" PRIu16 ", string:%" PRIu16 ", bin:%" PRIu16 ", bool:%" PRIu16
-				     ", int32:%" PRIu16 ", int64:%" PRIu16 ")\n",
-				     decoder.total_decoded_size,
-				     decoder.count_node_double, decoder.count_node_string, decoder.count_node_bindata, decoder.count_node_bool,
-				     decoder.count_node_int32, decoder.count_node_int64);
-
-			return 0;
-
-		} else if (result == -ENODATA) {
-			PX4_WARN("BSON: no data");
-			return 0;
-
-		} else {
-			PX4_ERR("param dump failed (%d)", result);
-		}
-	}
-
-	return -1;
 }
 
 void

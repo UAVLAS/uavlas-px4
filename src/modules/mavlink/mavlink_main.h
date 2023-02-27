@@ -210,6 +210,7 @@ public:
 		MAVLINK_MODE_EXTVISIONMIN,
 		MAVLINK_MODE_GIMBAL,
 		MAVLINK_MODE_ONBOARD_LOW_BANDWIDTH,
+		MAVLINK_MODE_UAVIONIX,
 		MAVLINK_MODE_COUNT
 	};
 
@@ -263,6 +264,9 @@ public:
 
 		case MAVLINK_MODE_ONBOARD_LOW_BANDWIDTH:
 			return "OnboardLowBandwidth";
+
+		case MAVLINK_MODE_UAVIONIX:
+			return "uAvionix";
 
 		default:
 			return "Unknown";
@@ -498,7 +502,6 @@ public:
 
 	bool hash_check_enabled() const { return _param_mav_hash_chk_en.get(); }
 	bool forward_heartbeats_enabled() const { return _param_mav_hb_forw_en.get(); }
-	bool odometry_loopback_enabled() const { return _param_mav_odom_lp.get(); }
 
 	bool failure_injection_enabled() const { return _param_sys_failure_injection_enabled.get(); }
 
@@ -671,7 +674,6 @@ private:
 		(ParamBool<px4::params::MAV_FWDEXTSP>) _param_mav_fwdextsp,
 		(ParamBool<px4::params::MAV_HASH_CHK_EN>) _param_mav_hash_chk_en,
 		(ParamBool<px4::params::MAV_HB_FORW_EN>) _param_mav_hb_forw_en,
-		(ParamBool<px4::params::MAV_ODOM_LP>) _param_mav_odom_lp,
 		(ParamInt<px4::params::MAV_RADIO_TOUT>)      _param_mav_radio_timeout,
 		(ParamInt<px4::params::SYS_HITL>) _param_sys_hitl,
 		(ParamBool<px4::params::SYS_FAILURE_EN>) _param_sys_failure_injection_enabled

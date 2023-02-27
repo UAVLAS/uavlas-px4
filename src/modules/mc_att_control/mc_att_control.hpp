@@ -33,7 +33,6 @@
 
 #pragma once
 
-#include <lib/mixer/MixerBase/Mixer.hpp> // Airmode
 #include <matrix/matrix/math.hpp>
 #include <perf/perf_counter.h>
 #include <px4_platform_common/px4_config.h>
@@ -51,9 +50,9 @@
 #include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/vehicle_attitude_setpoint.h>
 #include <uORB/topics/vehicle_control_mode.h>
+#include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_rates_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
-#include <uORB/topics/vehicle_land_detected.h>
 #include <lib/mathlib/math/filter/AlphaFilter.hpp>
 
 #include <AttitudeControl.hpp>
@@ -98,11 +97,11 @@ private:
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	uORB::Subscription _autotune_attitude_control_status_sub{ORB_ID(autotune_attitude_control_status)};
-	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};       /**< manual control setpoint subscription */
-	uORB::Subscription _vehicle_attitude_setpoint_sub{ORB_ID(vehicle_attitude_setpoint)};   /**< vehicle attitude setpoint subscription */
-	uORB::Subscription _vehicle_control_mode_sub{ORB_ID(vehicle_control_mode)};             /**< vehicle control mode subscription */
-	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};                         /**< vehicle status subscription */
-	uORB::Subscription _vehicle_land_detected_sub{ORB_ID(vehicle_land_detected)};           /**< vehicle land detected subscription */
+	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
+	uORB::Subscription _vehicle_attitude_setpoint_sub{ORB_ID(vehicle_attitude_setpoint)};
+	uORB::Subscription _vehicle_control_mode_sub{ORB_ID(vehicle_control_mode)};
+	uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
+	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 
 	uORB::SubscriptionCallbackWorkItem _vehicle_attitude_sub{this, ORB_ID(vehicle_attitude)};
 
@@ -119,14 +118,14 @@ private:
 	float _man_yaw_sp{0.f};                 /**< current yaw setpoint in manual mode */
 	float _man_tilt_max;                    /**< maximum tilt allowed for manual flight [rad] */
 
-	AlphaFilter<float> _man_x_input_filter;
-	AlphaFilter<float> _man_y_input_filter;
+	AlphaFilter<float> _man_roll_input_filter;
+	AlphaFilter<float> _man_pitch_input_filter;
 
 	hrt_abstime _last_run{0};
 	hrt_abstime _last_attitude_setpoint{0};
 
-	bool _landed{true};
 	bool _reset_yaw_sp{true};
+	bool _heading_good_for_control{true}; ///< initialized true to have heading lock when local position never published
 	bool _vehicle_type_rotary_wing{true};
 	bool _vtol{false};
 	bool _vtol_tailsitter{false};

@@ -97,12 +97,7 @@ bool FlightTaskAuto::updateInitialize()
 	// require valid reference and valid target
 	ret = ret && _evaluateGlobalReference() && _evaluateTriplets();
 	// require valid position
-	ret = ret && PX4_ISFINITE(_position(0))
-	      && PX4_ISFINITE(_position(1))
-	      && PX4_ISFINITE(_position(2))
-	      && PX4_ISFINITE(_velocity(0))
-	      && PX4_ISFINITE(_velocity(1))
-	      && PX4_ISFINITE(_velocity(2));
+	ret = ret && _position.isAllFinite() && _velocity.isAllFinite();
 
 	return ret;
 }
@@ -223,9 +218,9 @@ void FlightTaskAuto::_prepareLandSetpoints()
 	_velocity_setpoint.setNaN(); // Don't take over any smoothed velocity setpoint
 
 	// Slow down automatic descend close to ground
-	float vertical_speed = math::gradual(_dist_to_ground,
-					     _param_mpc_land_alt2.get(), _param_mpc_land_alt1.get(),
-					     _param_mpc_land_speed.get(), _param_mpc_z_vel_max_dn.get());
+	float vertical_speed = math::interpolate(_dist_to_ground,
+			       _param_mpc_land_alt2.get(), _param_mpc_land_alt1.get(),
+			       _param_mpc_land_speed.get(), _param_mpc_z_vel_max_dn.get());
 
 	bool range_dist_available = PX4_ISFINITE(_dist_to_bottom);
 
@@ -238,8 +233,10 @@ void FlightTaskAuto::_prepareLandSetpoints()
 		_land_heading = _yaw_setpoint;
 		_stick_acceleration_xy.resetPosition(Vector2f(_target(0), _target(1)));
 	}
+
 	// Update xy-position in case of landing position changes (etc. precision landing)
 	_land_position = Vector3f(_target(0), _target(1), NAN);
+
 	// User input assisted landing
 	if (_param_mpc_land_rc_help.get() && _sticks.checkAndUpdateStickInputs()) {
 		// Stick full up -1 -> stop, stick full down 1 -> double the speed
@@ -342,12 +339,11 @@ bool FlightTaskAuto::_evaluateTriplets()
 	const float cruise_speed_from_triplet = _sub_triplet_setpoint.get().current.cruising_speed;
 
 	if (PX4_ISFINITE(cruise_speed_from_triplet)
-	    && (cruise_speed_from_triplet > 0.f)
 	    && (_sub_triplet_setpoint.get().current.timestamp > _time_last_cruise_speed_override)) {
 		_mc_cruise_speed = cruise_speed_from_triplet;
 	}
 
-	if (!PX4_ISFINITE(_mc_cruise_speed) || (_mc_cruise_speed < 0.0f)) {
+	if (!PX4_ISFINITE(_mc_cruise_speed) || (_mc_cruise_speed < FLT_EPSILON)) {
 		// If no speed is planned use the default cruise speed as limit
 		_mc_cruise_speed = _param_mpc_xy_cruise.get();
 	}
@@ -361,7 +357,7 @@ bool FlightTaskAuto::_evaluateTriplets()
 	if (!PX4_ISFINITE(_sub_triplet_setpoint.get().current.lat)
 	    || !PX4_ISFINITE(_sub_triplet_setpoint.get().current.lon)) {
 		// No position provided in xy. Lock position
-		if (!PX4_ISFINITE(_lock_position_xy(0))) {
+		if (!_lock_position_xy.isAllFinite()) {
 			tmp_target(0) = _lock_position_xy(0) = _position(0);
 			tmp_target(1) = _lock_position_xy(1) = _position(1);
 
@@ -389,9 +385,7 @@ bool FlightTaskAuto::_evaluateTriplets()
 	const bool prev_next_validity_changed = (_prev_was_valid != _sub_triplet_setpoint.get().previous.valid)
 						|| (_next_was_valid != _sub_triplet_setpoint.get().next.valid);
 
-	if (PX4_ISFINITE(_triplet_target(0))
-	    && PX4_ISFINITE(_triplet_target(1))
-	    && PX4_ISFINITE(_triplet_target(2))
+	if (_triplet_target.isAllFinite()
 	    && fabsf(_triplet_target(0) - tmp_target(0)) < 0.001f
 	    && fabsf(_triplet_target(1) - tmp_target(1)) < 0.001f
 	    && fabsf(_triplet_target(2) - tmp_target(2)) < 0.001f
@@ -403,7 +397,7 @@ bool FlightTaskAuto::_evaluateTriplets()
 		_triplet_target = tmp_target;
 		_target_acceptance_radius = _sub_triplet_setpoint.get().current.acceptance_radius;
 
-		if (!PX4_ISFINITE(_triplet_target(0)) || !PX4_ISFINITE(_triplet_target(1))) {
+		if (!Vector2f(_triplet_target).isAllFinite()) {
 			// Horizontal target is not finite.
 			_triplet_target(0) = _position(0);
 			_triplet_target(1) = _position(1);
@@ -451,7 +445,6 @@ bool FlightTaskAuto::_evaluateTriplets()
 
 	if (triplet_update || (_current_state != previous_state) || _current_state == State::offtrack) {
 		_updateInternalWaypoints();
-		_mission_gear = _sub_triplet_setpoint.get().current.landing_gear;
 	}
 
 	if (_param_com_obs_avoid.get()
@@ -480,12 +473,6 @@ bool FlightTaskAuto::_evaluateTriplets()
 		} else {
 			_yawspeed_setpoint = _weathervane.getWeathervaneYawrate();
 		}
-
-
-
-	} else if (_type == WaypointType::follow_target && _sub_triplet_setpoint.get().current.yawspeed_valid) {
-		_yawspeed_setpoint = _sub_triplet_setpoint.get().current.yawspeed;
-		_yaw_setpoint = NAN;
 
 	} else {
 		if (!_is_yaw_good_for_control) {
@@ -544,7 +531,7 @@ void FlightTaskAuto::_set_heading_from_mode()
 		break;
 	}
 
-	if (PX4_ISFINITE(v.norm_squared())) {
+	if (v.isAllFinite()) {
 		// We only adjust yaw if vehicle is outside of acceptance radius. Once we enter acceptance
 		// radius, lock yaw to current yaw.
 		// This prevents excessive yawing.
@@ -605,23 +592,6 @@ bool FlightTaskAuto::_evaluateGlobalReference()
 
 	// check if everything is still finite
 	return PX4_ISFINITE(_reference_altitude) && PX4_ISFINITE(ref_lat) && PX4_ISFINITE(ref_lon);
-}
-
-Vector2f FlightTaskAuto::_getTargetVelocityXY()
-{
-	// guard against any bad velocity values
-	const float vx = _sub_triplet_setpoint.get().current.vx;
-	const float vy = _sub_triplet_setpoint.get().current.vy;
-	bool velocity_valid = PX4_ISFINITE(vx) && PX4_ISFINITE(vy) &&
-			      _sub_triplet_setpoint.get().current.velocity_valid;
-
-	if (velocity_valid) {
-		return Vector2f(vx, vy);
-
-	} else {
-		// just return zero speed
-		return Vector2f{};
-	}
 }
 
 State FlightTaskAuto::_getCurrentState()
@@ -784,7 +754,7 @@ bool FlightTaskAuto::isTargetModified() const
 {
 	const bool xy_modified = (_target - _position_setpoint).xy().longerThan(FLT_EPSILON);
 	const bool z_valid = PX4_ISFINITE(_position_setpoint(2));
-	const bool z_modified =  z_valid && fabs((_target - _position_setpoint)(2)) > FLT_EPSILON;
+	const bool z_modified =  z_valid && std::fabs((_target - _position_setpoint)(2)) > FLT_EPSILON;
 
 	return xy_modified || z_modified;
 }

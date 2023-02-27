@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -539,7 +540,7 @@ public:
 
 		for (size_t i = 0; i < M; i++) {
 			for (size_t j = 0; j < N; j++) {
-				r(i, j) = Type(fabs((*this)(i, j)));
+				r(i, j) = Type(std::fabs((*this)(i, j)));
 			}
 		}
 
@@ -582,16 +583,31 @@ public:
 
 	bool isAllNan() const
 	{
-		const Matrix<float, M, N> &self = *this;
+		const Matrix<Type, M, N> &self = *this;
 		bool result = true;
 
 		for (size_t i = 0; i < M; i++) {
 			for (size_t j = 0; j < N; j++) {
-				result = result && isnan(self(i, j));
+				result = result && std::isnan(self(i, j));
 			}
 		}
 
 		return result;
+	}
+
+	bool isAllFinite() const
+	{
+		const Matrix<Type, M, N> &self = *this;
+
+		for (size_t i = 0; i < M; i++) {
+			for (size_t j = 0; j < N; j++) {
+				if (!std::isfinite(self(i, j))) {
+					return false;
+				}
+			}
+		}
+
+		return true;
 	}
 };
 
@@ -645,8 +661,8 @@ namespace typeFunction
 template<typename Type>
 Type min(const Type x, const Type y)
 {
-	bool x_is_nan = isnan(x);
-	bool y_is_nan = isnan(y);
+	bool x_is_nan = std::isnan(x);
+	bool y_is_nan = std::isnan(y);
 
 	// take the non-nan value if there is one
 	if (x_is_nan || y_is_nan) {
@@ -664,8 +680,8 @@ Type min(const Type x, const Type y)
 template<typename Type>
 Type max(const Type x, const Type y)
 {
-	bool x_is_nan = isnan(x);
-	bool y_is_nan = isnan(y);
+	bool x_is_nan = std::isnan(x);
+	bool y_is_nan = std::isnan(y);
 
 	// take the non-nan value if there is one
 	if (x_is_nan || y_is_nan) {
@@ -686,7 +702,7 @@ Type constrain(const Type x, const Type lower_bound, const Type upper_bound)
 	if (lower_bound > upper_bound) {
 		return NAN;
 
-	} else if (isnan(x)) {
+	} else if (std::isnan(x)) {
 		return NAN;
 
 	} else {

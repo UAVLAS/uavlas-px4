@@ -62,7 +62,7 @@ VtolTakeoff::on_activation()
 void
 VtolTakeoff::on_active()
 {
-	if (is_mission_item_reached()) {
+	if (is_mission_item_reached_or_completed()) {
 		reset_mission_item_reached();
 
 		switch	(_takeoff_state) {
@@ -142,9 +142,17 @@ VtolTakeoff::on_active()
 
 		case vtol_takeoff_state::CLIMB: {
 
-				// the VTOL takeoff is done, proceed loitering and upate the navigation state to LOITER
+				// reset any potentially valid reposition triplet which was not handled
+				// we do this to avoid random loiter locations after switching to loiter mode after this
+				position_setpoint_triplet_s *reposition_triplet = _navigator->get_reposition_triplet();
+				_navigator->reset_position_setpoint(reposition_triplet->previous);
+				_navigator->reset_position_setpoint(reposition_triplet->current);
+				_navigator->reset_position_setpoint(reposition_triplet->next);
+
+				// the VTOL takeoff is done
 				_navigator->get_mission_result()->finished = true;
 				_navigator->set_mission_result_updated();
+				_navigator->mode_completed(vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF);
 
 				break;
 			}

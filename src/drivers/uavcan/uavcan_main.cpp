@@ -58,8 +58,6 @@
 #include <uORB/topics/esc_status.h>
 
 #include <drivers/drv_hrt.h>
-#include <drivers/drv_mixer.h>
-#include <drivers/drv_pwm_output.h>
 
 #include "uavcan_module.hpp"
 #include "uavcan_main.hpp"
@@ -76,8 +74,9 @@
  */
 UavcanNode *UavcanNode::_instance;
 
+static UavcanNode::CanInitHelper *can = nullptr;
+
 UavcanNode::UavcanNode(uavcan::ICanDriver &can_driver, uavcan::ISystemClock &system_clock) :
-	CDev(UAVCAN_DEVICE_PATH),
 	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::uavcan),
 	ModuleParams(nullptr),
 	_node(can_driver, system_clock, _pool_allocator),
@@ -407,28 +406,15 @@ UavcanNode::start(uavcan::NodeID node_id, uint32_t bitrate)
 		return -1;
 	}
 
-	/*
-	 * CAN driver init
-	 * Note that we instantiate and initialize CanInitHelper only once, because the STM32's bxCAN driver
-	 * shipped with libuavcan does not support deinitialization.
-	 */
-	static CanInitHelper *can = nullptr;
-
 	if (can == nullptr) {
 
 		can = new CanInitHelper(board_get_can_interfaces());
 
-		if (can == nullptr) {                    // We don't have exceptions so bad_alloc cannot be thrown
+		if (can == nullptr) {  // We don't have exceptions so bad_alloc cannot be thrown
 			PX4_ERR("Out of memory");
 			return -1;
 		}
 
-		const int can_init_res = can->init(bitrate);
-
-		if (can_init_res < 0) {
-			PX4_ERR("CAN driver init failed %i", can_init_res);
-			return can_init_res;
-		}
 	}
 
 	/*
@@ -439,15 +425,6 @@ UavcanNode::start(uavcan::NodeID node_id, uint32_t bitrate)
 	if (_instance == nullptr) {
 		PX4_ERR("Out of memory");
 		return -1;
-	}
-
-	const int node_init_res = _instance->init(node_id, can->driver.updateEvent());
-
-	if (node_init_res < 0) {
-		delete _instance;
-		_instance = nullptr;
-		PX4_ERR("Node init failed %i", node_init_res);
-		return node_init_res;
 	}
 
 	_instance->ScheduleOnInterval(ScheduleIntervalMs * 1000);
@@ -493,13 +470,6 @@ UavcanNode::busevent_signal_trampoline()
 int
 UavcanNode::init(uavcan::NodeID node_id, UAVCAN_DRIVER::BusEvent &bus_events)
 {
-	// Do regular cdev init
-	int ret = CDev::init();
-
-	if (ret != OK) {
-		return ret;
-	}
-
 	bus_events.registerSignalCallback(UavcanNode::busevent_signal_trampoline);
 
 	_node.setName("org.pixhawk.pixhawk");
@@ -508,7 +478,7 @@ UavcanNode::init(uavcan::NodeID node_id, UAVCAN_DRIVER::BusEvent &bus_events)
 
 	fill_node_info();
 
-	ret = _beep_controller.init();
+	int ret = _beep_controller.init();
 
 	if (ret < 0) {
 		return ret;
@@ -575,15 +545,6 @@ UavcanNode::init(uavcan::NodeID node_id, UAVCAN_DRIVER::BusEvent &bus_events)
 	}
 
 	_mixing_interface_esc.mixingOutput().setAllDisarmedValues(UavcanEscController::DISARMED_OUTPUT_VALUE);
-
-	if (!_mixing_interface_esc.mixingOutput().useDynamicMixing()) {
-		// these are configurable with dynamic mixing
-		_mixing_interface_esc.mixingOutput().setAllMinValues(0); // Can be changed to 1 later, according to UAVCAN_ESC_IDLT
-		_mixing_interface_esc.mixingOutput().setAllMaxValues(UavcanEscController::max_output_value());
-
-		param_get(param_find("UAVCAN_ESC_IDLT"), &_idle_throttle_when_armed_param);
-		enable_idle_throttle_when_armed(true);
-	}
 
 	/* Set up shared service clients */
 	_param_getset_client.setCallback(GetSetCallback(this, &UavcanNode::cb_getset));
@@ -653,6 +614,36 @@ UavcanNode::handle_time_sync(const uavcan::TimerEvent &)
 void
 UavcanNode::Run()
 {
+	if (!_node_init) {
+		// Node ID
+		int32_t node_id = 1;
+		(void)param_get(param_find("UAVCAN_NODE_ID"), &node_id);
+
+		if (node_id < 0 || node_id > uavcan::NodeID::Max || !uavcan::NodeID(node_id).isUnicast()) {
+			PX4_ERR("Invalid Node ID %" PRId32, node_id);
+			::exit(1);
+		}
+
+		// CAN bitrate
+		int32_t bitrate = 1000000;
+		(void)param_get(param_find("UAVCAN_BITRATE"), &bitrate);
+
+		/*
+		* CAN driver init
+		 * Note that we instantiate and initialize CanInitHelper only once, because the STM32's bxCAN driver
+		 * shipped with libuavcan does not support deinitialization.
+		 */
+		const int can_init_res = can->init(bitrate);
+
+		if (can_init_res < 0) {
+			PX4_ERR("CAN driver init failed %i", can_init_res);
+		}
+
+		_instance->init(node_id, can->driver.updateEvent());
+
+		_node_init = true;
+	}
+
 	pthread_mutex_lock(&_node_mutex);
 
 	if (_output_count == 0) {
@@ -697,10 +688,6 @@ UavcanNode::Run()
 	}
 
 	_node.spinOnce(); // expected to be non-blocking
-
-	// Check arming state
-	const actuator_armed_s &armed = _mixing_interface_esc.mixingOutput().armed();
-	enable_idle_throttle_when_armed(!armed.soft_stop);
 
 	// check for parameter updates
 	if (_parameter_update_sub.updated()) {
@@ -928,57 +915,6 @@ UavcanNode::Run()
 	}
 }
 
-void
-UavcanNode::enable_idle_throttle_when_armed(bool value)
-{
-	value &= _idle_throttle_when_armed_param > 0;
-
-	if (!_mixing_interface_esc.mixingOutput().useDynamicMixing()) {
-		if (value != _idle_throttle_when_armed) {
-			_mixing_interface_esc.mixingOutput().setAllMinValues(value ? 1 : 0);
-			_idle_throttle_when_armed = value;
-		}
-	}
-}
-
-int
-UavcanNode::ioctl(file *filp, int cmd, unsigned long arg)
-{
-	int ret = OK;
-
-	pthread_mutex_lock(&_node_mutex);
-
-	switch (cmd) {
-	case PWM_SERVO_SET_ARM_OK:
-	case PWM_SERVO_CLEAR_ARM_OK:
-		break;
-
-	case MIXERIOCRESET:
-		_mixing_interface_esc.mixingOutput().resetMixer();
-
-		break;
-
-	case MIXERIOCLOADBUF: {
-			const char *buf = (const char *)arg;
-			unsigned buflen = strlen(buf);
-			ret = _mixing_interface_esc.mixingOutput().loadMixer(buf, buflen);
-		}
-		break;
-
-	default:
-		ret = -ENOTTY;
-		break;
-	}
-
-	pthread_mutex_unlock(&_node_mutex);
-
-	if (ret == -ENOTTY) {
-		ret = CDev::ioctl(filp, cmd, arg);
-	}
-
-	return ret;
-}
-
 bool UavcanMixingInterfaceESC::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS], unsigned num_outputs,
 		unsigned num_control_groups_updated)
 {
@@ -998,18 +934,11 @@ void UavcanMixingInterfaceESC::mixerChanged()
 {
 	int rotor_count = 0;
 
-	if (_mixing_output.useDynamicMixing()) {
-		for (unsigned i = 0; i < MAX_ACTUATORS; ++i) {
-			rotor_count += _mixing_output.isFunctionSet(i);
+	for (unsigned i = 0; i < MAX_ACTUATORS; ++i) {
+		rotor_count += _mixing_output.isFunctionSet(i);
 
-			if (i < esc_status_s::CONNECTED_ESC_MAX) {
-				_esc_controller.esc_status().esc[i].actuator_function = (uint8_t)_mixing_output.outputFunction(i);
-			}
-		}
-
-	} else {
-		if (_mixing_output.mixers()) {
-			rotor_count = _mixing_output.mixers()->get_multirotor_count();
+		if (i < esc_status_s::CONNECTED_ESC_MAX) {
+			_esc_controller.esc_status().esc[i].actuator_function = (uint8_t)_mixing_output.outputFunction(i);
 		}
 	}
 

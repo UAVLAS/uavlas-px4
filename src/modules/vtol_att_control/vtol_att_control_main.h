@@ -50,7 +50,6 @@
 #pragma once
 
 #include <drivers/drv_hrt.h>
-#include <drivers/drv_pwm_output.h>
 #include <lib/geo/geo.h>
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
@@ -68,6 +67,7 @@
 #include <uORB/topics/action_request.h>
 #include <uORB/topics/actuator_controls.h>
 #include <uORB/topics/airspeed_validated.h>
+#include <uORB/topics/home_position.h>
 #include <uORB/topics/vehicle_air_data.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/position_setpoint_triplet.h>
@@ -97,16 +97,6 @@ static constexpr float kMaxVTOLAttitudeControlTimeStep = 0.1f; // max time step 
 class VtolAttitudeControl : public ModuleBase<VtolAttitudeControl>, public ModuleParams, public px4::WorkItem
 {
 public:
-
-	enum class QuadchuteReason {
-		TransitionTimeout = 0,
-		ExternalCommand,
-		MinimumAltBreached,
-		LossOfAlt,
-		LargeAltError,
-		MaximumPitchExceeded,
-		MaximumRollExceeded,
-	};
 
 	VtolAttitudeControl();
 	~VtolAttitudeControl() override;
@@ -154,6 +144,7 @@ public:
 	struct vehicle_thrust_setpoint_s 		*get_thrust_setpoint_0() {return &_thrust_setpoint_0;}
 	struct vehicle_thrust_setpoint_s 		*get_thrust_setpoint_1() {return &_thrust_setpoint_1;}
 	struct vtol_vehicle_status_s			*get_vtol_vehicle_status() {return &_vtol_vehicle_status;}
+	float get_home_position_z() { return _home_position_z; }
 
 private:
 	void Run() override;
@@ -166,6 +157,7 @@ private:
 	uORB::Subscription _action_request_sub{ORB_ID(action_request)};
 	uORB::Subscription _airspeed_validated_sub{ORB_ID(airspeed_validated)};
 	uORB::Subscription _fw_virtual_att_sp_sub{ORB_ID(fw_virtual_attitude_setpoint)};
+	uORB::Subscription _home_position_sub{ORB_ID(home_position)};
 	uORB::Subscription _land_detected_sub{ORB_ID(vehicle_land_detected)};
 	uORB::Subscription _local_pos_sp_sub{ORB_ID(vehicle_local_position_setpoint)};
 	uORB::Subscription _local_pos_sub{ORB_ID(vehicle_local_position)};
@@ -211,7 +203,9 @@ private:
 	vehicle_land_detected_s			_land_detected{};
 	vehicle_local_position_s		_local_pos{};
 	vehicle_local_position_setpoint_s	_local_pos_sp{};
+	vehicle_status_s 			_vehicle_status{};
 	vtol_vehicle_status_s 			_vtol_vehicle_status{};
+	float _home_position_z{NAN};
 
 	float _air_density{CONSTANTS_AIR_DENSITY_SEA_LEVEL_15C};	// [kg/m^3]
 
@@ -223,11 +217,15 @@ private:
 	int		_transition_command{vtol_vehicle_status_s::VEHICLE_VTOL_STATE_MC};
 	bool		_immediate_transition{false};
 
+	uint8_t _nav_state_prev;
+
 	VtolType	*_vtol_type{nullptr};	// base class for different vtol types
 
 	bool		_initialized{false};
 
 	perf_counter_t	_loop_perf;		// loop performance counter
+
+	void		vehicle_status_poll();
 
 	void		action_request_poll();
 

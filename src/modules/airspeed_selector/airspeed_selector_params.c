@@ -25,7 +25,7 @@ PARAM_DEFINE_FLOAT(ASPD_WIND_NSD, 1.e-2f);
  * @decimal 5
  * @group Airspeed Validator
  */
-PARAM_DEFINE_FLOAT(ASPD_SCALE_NSD, 0.0001f);
+PARAM_DEFINE_FLOAT(ASPD_SCALE_NSD, 1.e-4f);
 
 /**
  * Airspeed Selector: Wind estimator true airspeed measurement noise
@@ -153,7 +153,7 @@ PARAM_DEFINE_INT32(ASPD_PRIMARY, 1);
  * @min 0
  * @max 15
  * @bit 0 Only data missing check (triggers if more than 1s no data)
- * @bit 1 Data stuck (triggers if data is exactly constant for 2s)
+ * @bit 1 Data stuck (triggers if data is exactly constant for 2s in FW mode)
  * @bit 2 Innovation check (see ASPD_FS_INNOV)
  * @bit 3 Load factor check (triggers if measurement is below stall speed)
  * @group Airspeed Validator
@@ -227,3 +227,17 @@ PARAM_DEFINE_INT32(ASPD_FS_T_STOP, 2);
  * @max 1000
  */
 PARAM_DEFINE_INT32(ASPD_FS_T_START, -1);
+
+/**
+ * Horizontal wind uncertainty threshold for synthetic airspeed.
+ *
+ * The synthetic airspeed estimate (from groundspeed and heading) will be declared valid
+ * as soon and as long the horizontal wind uncertainty drops below this value.
+ *
+ * @unit m/s
+ * @min 0.001
+ * @max 5
+ * @decimal 3
+ * @group Airspeed Validator
+ */
+PARAM_DEFINE_FLOAT(ASPD_WERR_THR, 0.55f);

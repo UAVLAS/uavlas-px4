@@ -62,9 +62,10 @@ Takeoff::on_active()
 		// reset the position
 		set_takeoff_position();
 
-	} else if (is_mission_item_reached() && !_navigator->get_mission_result()->finished) {
+	} else if (is_mission_item_reached_or_completed() && !_navigator->get_mission_result()->finished) {
 		_navigator->get_mission_result()->finished = true;
 		_navigator->set_mission_result_updated();
+		_navigator->mode_completed(vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF);
 
 		position_setpoint_triplet_s *pos_sp_triplet = _navigator->get_position_setpoint_triplet();
 

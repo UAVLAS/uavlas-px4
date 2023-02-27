@@ -1,11 +1,10 @@
 #pragma once
 
 #include <assert.h>
-#include "stdlib_imports.hpp"
-#ifdef __PX4_QURT
-#include "dspal_math.h"
-#endif
+#include <px4_platform_common/defines.h>
+
 #include "helper_functions.hpp"
+
 #include "Matrix.hpp"
 #include "SquareMatrix.hpp"
 #include "Slice.hpp"

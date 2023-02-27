@@ -242,7 +242,7 @@ PARAM_DEFINE_FLOAT(MPC_Z_VEL_MAX_UP, 3.f);
  * @decimal 1
  * @group Multicopter Position Control
  */
-PARAM_DEFINE_FLOAT(MPC_Z_V_AUTO_DN, 1.f);
+PARAM_DEFINE_FLOAT(MPC_Z_V_AUTO_DN, 1.5f);
 
 /**
  * Maximum descent velocity
@@ -257,7 +257,7 @@ PARAM_DEFINE_FLOAT(MPC_Z_V_AUTO_DN, 1.f);
  * @decimal 1
  * @group Multicopter Position Control
  */
-PARAM_DEFINE_FLOAT(MPC_Z_VEL_MAX_DN, 1.f);
+PARAM_DEFINE_FLOAT(MPC_Z_VEL_MAX_DN, 1.5f);
 
 /**
  * Proportional gain for horizontal position error
@@ -448,27 +448,33 @@ PARAM_DEFINE_FLOAT(MPC_TILTMAX_LND, 12.0f);
 PARAM_DEFINE_FLOAT(MPC_LAND_SPEED, 0.7f);
 
 /**
- * Land crawl descend rate. Used below
+ * Land crawl descend rate
+ *
+ * Used below MPC_LAND_ALT3 if distance sensor data is availabe.
  *
  * @unit m/s
- * @min 0.3
+ * @min 0.1
  * @decimal 1
  * @group Multicopter Position Control
  */
 PARAM_DEFINE_FLOAT(MPC_LAND_CRWL, 0.3f);
 
 /**
- * Enable user assisted descent speed for autonomous land routine.
+ * Enable user assisted descent for autonomous land routine
  *
  * When enabled, descent speed will be:
  * stick full up - 0
  * stick centered - MPC_LAND_SPEED
  * stick full down - 2 * MPC_LAND_SPEED
  *
+ * Additionally, the vehicle can be yawed and moved laterally using the other sticks.
+ * Manual override during auto modes has to be disabled to use this feature (see COM_RC_OVERRIDE).
+ *
  * @min 0
  * @max 1
  * @value 0 Fixed descent speed of MPC_LAND_SPEED
  * @value 1 User assisted descent speed
+ * @group Multicopter Position Control
  */
 PARAM_DEFINE_INT32(MPC_LAND_RC_HELP, 0);
 
@@ -848,7 +854,7 @@ PARAM_DEFINE_INT32(MPC_YAW_MODE, 0);
 PARAM_DEFINE_FLOAT(SYS_VEHICLE_RESP, -0.4f);
 
 /**
- * Overall Horizonal Velocity Limit
+ * Overall Horizontal Velocity Limit
  *
  * If set to a value greater than zero, other parameters are automatically set (such as
  * MPC_XY_VEL_MAX or MPC_VEL_MANUAL).

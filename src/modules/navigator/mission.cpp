@@ -173,6 +173,7 @@ Mission::on_inactivation()
 	cmd.param3 = 1.0f;
 	_navigator->publish_vehicle_cmd(&cmd);
 
+	_navigator->stop_capturing_images();
 	_navigator->release_gimbal_control();
 
 	if (_navigator->get_precland()->is_activated()) {
@@ -216,8 +217,8 @@ Mission::on_active()
 {
 	check_mission_valid(false);
 
-	/* check if anything has changed */
-	bool mission_sub_updated = _mission_sub.updated();
+	/* Check if stored mission plan has changed */
+	const bool mission_sub_updated = _mission_sub.updated();
 
 	if (mission_sub_updated) {
 		_navigator->reset_triplets();
@@ -245,7 +246,7 @@ Mission::on_active()
 	}
 
 	/* lets check if we reached the current mission item */
-	if (_mission_type != MISSION_TYPE_NONE && is_mission_item_reached()) {
+	if (_mission_type != MISSION_TYPE_NONE && is_mission_item_reached_or_completed()) {
 		/* If we just completed a takeoff which was inserted before the right waypoint,
 		   there is no need to report that we reached it because we didn't. */
 		if (_work_item_type != WORK_ITEM_TYPE_TAKEOFF) {
@@ -432,17 +433,19 @@ Mission::find_mission_land_start()
 
 		if (missionitem.nav_cmd == NAV_CMD_DO_LAND_START) {
 			found_land_start_marker = true;
-			_land_start_index = i;
 		}
 
-		if (found_land_start_marker && !_land_start_available && i > _land_start_index
-		    && item_contains_position(missionitem)) {
+		if (found_land_start_marker && !_land_start_available && item_contains_position(missionitem)) {
 			// use the position of any waypoint after the land start marker which specifies a position.
 			_landing_start_lat = missionitem.lat;
 			_landing_start_lon = missionitem.lon;
 			_landing_start_alt = missionitem.altitude_is_relative ?	missionitem.altitude +
 					     _navigator->get_home_position()->alt : missionitem.altitude;
+			_landing_loiter_radius = (PX4_ISFINITE(missionitem.loiter_radius)
+						  && fabsf(missionitem.loiter_radius) > FLT_EPSILON) ? fabsf(missionitem.loiter_radius) :
+						 _navigator->get_loiter_radius();
 			_land_start_available = true;
+			_land_start_index = i; // set it to the first item containing a position after the land start marker was found
 		}
 
 		if (((missionitem.nav_cmd == NAV_CMD_VTOL_LAND) && _navigator->get_vstatus()->is_vtol) ||
@@ -668,7 +671,6 @@ Mission::set_mission_items()
 		_mission_type = MISSION_TYPE_MISSION;
 
 	} else {
-		/* no mission available or mission finished, switch to loiter */
 		if (_mission_type != MISSION_TYPE_NONE) {
 
 			if (_navigator->get_land_detected()->landed) {
@@ -732,6 +734,7 @@ Mission::set_mission_items()
 		// set mission finished
 		_navigator->get_mission_result()->finished = true;
 		_navigator->set_mission_result_updated();
+		_navigator->mode_completed(vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION);
 
 		if (!user_feedback_done) {
 			/* only tell users that we got no mission if there has not been any
@@ -820,15 +823,10 @@ Mission::set_mission_items()
 				} else if (_mission_item.nav_cmd == NAV_CMD_VTOL_TAKEOFF
 					   && _work_item_type == WORK_ITEM_TYPE_DEFAULT
 					   && new_work_item_type == WORK_ITEM_TYPE_DEFAULT) {
+					// if the vehicle is already in fixed wing mode then the current mission item
+					// will be accepted immediately and the work items will be skipped
+					_work_item_type = WORK_ITEM_TYPE_TAKEOFF;
 
-					if (_navigator->get_vstatus()->vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING) {
-						/* haven't transitioned yet, trigger vtol takeoff logic below */
-						_work_item_type = WORK_ITEM_TYPE_TAKEOFF;
-
-					} else {
-						/* already in fixed-wing, go to waypoint */
-						_mission_item.nav_cmd = NAV_CMD_WAYPOINT;
-					}
 
 					/* ignore yaw here, otherwise it might yaw before heading_sp_update takes over */
 					_mission_item.yaw = NAN;
@@ -1119,9 +1117,6 @@ Mission::set_mission_items()
 	}
 
 	/*********************************** set setpoints and check next *********************************************/
-
-	position_setpoint_triplet_s *pos_sp_triplet = _navigator->get_position_setpoint_triplet();
-
 	// The logic in this section establishes the tracking between the current waypoint
 	// which we are approaching and the next waypoint, which will tell us in which direction
 	// we will change our trajectory right after reaching it.
@@ -1130,8 +1125,9 @@ Mission::set_mission_items()
 	// we are searching around the current mission item in the list to find the closest
 	// gate and the closest waypoint. We then store them separately.
 
-	// Check if the mission item is a gate
-	// along the current trajectory
+	position_setpoint_triplet_s *pos_sp_triplet = _navigator->get_position_setpoint_triplet();
+
+	// Check if the mission item is a gate along the current trajectory
 	if (item_contains_gate(_mission_item)) {
 
 		// The mission item is a gate, let's check if the next item in the list provides
@@ -1184,10 +1180,8 @@ Mission::set_mission_items()
 		set_current_mission_item();
 	}
 
-	// If the mission item under evaluation contains a gate,
-	// then we need to check if we have a next position item so
-	// the controller can fly the correct line between the
-	// current and next setpoint
+	// If the mission item under evaluation contains a gate, we need to check if we have a next position item so
+	// the controller can fly the correct line between the current and next setpoint
 	if (item_contains_gate(_mission_item)) {
 		if (has_after_next_position_item) {
 			/* got next mission item, update setpoint triplet */
@@ -1199,9 +1193,13 @@ Mission::set_mission_items()
 		}
 
 	} else {
-		/* allow the vehicle to decelerate before reaching a wp with a hold time */
+		// Allow a rotary wing vehicle to decelerate before reaching a wp with a hold time or a timeout
+		// This is done by setting the position triplet's next position's valid flag to false,
+		// which makes the FlightTask disregard the next position
+		// TODO: Setting the next waypoint's validity flag to handle braking / correct waypoint behavior
+		// seems hacky, handle this more properly.
 		const bool brake_for_hold = _navigator->get_vstatus()->vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING
-					    && get_time_inside(_mission_item) > FLT_EPSILON;
+					    && (get_time_inside(_mission_item) > FLT_EPSILON || item_has_timeout(_mission_item));
 
 		if (_mission_item.autocontinue && !brake_for_hold) {
 			/* try to process next mission item */
@@ -1438,18 +1436,15 @@ Mission::cruising_speed_sp_update()
 void
 Mission::do_abort_landing()
 {
-	// Abort FW landing
-	//  first climb out then loiter over intended landing location
+	// Abort FW landing, loiter above landing site in at least MIS_LND_ABRT_ALT
 
 	if (_mission_item.nav_cmd != NAV_CMD_LAND) {
 		return;
 	}
 
-	// loiter at the larger of MIS_LTRMIN_ALT above the landing point
-	//  or 2 * FW_CLMBOUT_DIFF above the current altitude
 	const float alt_landing = get_absolute_altitude_for_item(_mission_item);
-	const float alt_sp = math::max(alt_landing + _navigator->get_loiter_min_alt(),
-				       _navigator->get_global_position()->alt + 20.0f);
+	const float alt_sp = math::max(alt_landing + _navigator->get_landing_abort_min_alt(),
+				       _navigator->get_global_position()->alt);
 
 	// turn current landing waypoint into an indefinite loiter
 	_mission_item.nav_cmd = NAV_CMD_LOITER_UNLIMITED;
@@ -1462,13 +1457,21 @@ Mission::do_abort_landing()
 
 	mission_apply_limitation(_mission_item);
 	mission_item_to_position_setpoint(_mission_item, &_navigator->get_position_setpoint_triplet()->current);
+
+	// XXX: this is a hack to invalidate the "next" position setpoint for the fixed-wing position controller during
+	// the landing abort hold. otherwise, the "next" setpoint would still register as a "LAND" point, and trigger
+	// the early landing configuration (flaps and landing airspeed) during the hold.
+	_navigator->get_position_setpoint_triplet()->next.lat = (double)NAN;
+	_navigator->get_position_setpoint_triplet()->next.lon = (double)NAN;
+	_navigator->get_position_setpoint_triplet()->next.alt = NAN;
+
 	publish_navigator_mission_item(); // for logging
 	_navigator->set_position_setpoint_triplet_updated();
 
-	mavlink_log_info(_navigator->get_mavlink_log_pub(), "Holding at %d m above landing.\t",
+	mavlink_log_info(_navigator->get_mavlink_log_pub(), "Holding at %d m above landing waypoint.\t",
 			 (int)(alt_sp - alt_landing));
 	events::send<float>(events::ID("mission_holding_above_landing"), events::Log::Info,
-			    "Holding at {1:.0m_v} above landing", alt_sp - alt_landing);
+			    "Holding at {1:.0m_v} above landing waypoint", alt_sp - alt_landing);
 
 	// reset mission index to start of landing
 	if (_land_start_available) {
@@ -1743,10 +1746,7 @@ Mission::check_mission_valid(bool force)
 		MissionFeasibilityChecker _missionFeasibilityChecker(_navigator);
 
 		_navigator->get_mission_result()->valid =
-			_missionFeasibilityChecker.checkMissionFeasible(_mission,
-					_param_mis_dist_1wp.get(),
-					_param_mis_dist_wps.get(),
-					_navigator->mission_landing_required());
+			_missionFeasibilityChecker.checkMissionFeasible(_mission);
 
 		_navigator->get_mission_result()->seq_total = _mission.count;
 		_navigator->increment_mission_instance_count();
@@ -1886,9 +1886,6 @@ bool Mission::position_setpoint_equal(const position_setpoint_s *p1, const posit
 		(fabsf(p1->vx - p2->vx) < FLT_EPSILON) &&
 		(fabsf(p1->vy - p2->vy) < FLT_EPSILON) &&
 		(fabsf(p1->vz - p2->vz) < FLT_EPSILON) &&
-		(p1->velocity_valid == p2->velocity_valid) &&
-		(p1->velocity_frame == p2->velocity_frame) &&
-		(p1->alt_valid == p2->alt_valid) &&
 		(fabs(p1->lat - p2->lat) < DBL_EPSILON) &&
 		(fabs(p1->lon - p2->lon) < DBL_EPSILON) &&
 		(fabsf(p1->alt - p2->alt) < FLT_EPSILON) &&
@@ -1897,7 +1894,7 @@ bool Mission::position_setpoint_equal(const position_setpoint_s *p1, const posit
 		(fabsf(p1->yawspeed - p2->yawspeed) < FLT_EPSILON) &&
 		(p1->yawspeed_valid == p2->yawspeed_valid) &&
 		(fabsf(p1->loiter_radius - p2->loiter_radius) < FLT_EPSILON) &&
-		(p1->loiter_direction == p2->loiter_direction) &&
+		(p1->loiter_direction_counter_clockwise == p2->loiter_direction_counter_clockwise) &&
 		(fabsf(p1->acceptance_radius - p2->acceptance_radius) < FLT_EPSILON) &&
 		(fabsf(p1->cruising_speed - p2->cruising_speed) < FLT_EPSILON) &&
 		((fabsf(p1->cruising_throttle - p2->cruising_throttle) < FLT_EPSILON) || (!PX4_ISFINITE(p1->cruising_throttle)

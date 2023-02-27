@@ -33,7 +33,7 @@
 
 #include <px4_platform_common/getopt.h>
 #include <px4_platform_common/cli.h>
-#include <uORB/topics/vehicle_imu.h>
+#include <px4_platform_common/posix.h>
 
 #include "microdds_client.h"
 
@@ -46,27 +46,70 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#if defined(CONFIG_NET) || defined(__PX4_POSIX)
+# define MICRODDS_CLIENT_UDP 1
+#endif
+
 #define STREAM_HISTORY  4
 #define BUFFER_SIZE (UXR_CONFIG_SERIAL_TRANSPORT_MTU * STREAM_HISTORY) // MTU==512 by default
 
+#define PARTICIPANT_XML_SIZE 512
+
 using namespace time_literals;
 
+void on_time(uxrSession *session, int64_t current_time, int64_t received_timestamp, int64_t transmit_timestamp,
+	     int64_t originate_timestamp, void *args)
+{
+	// latest round trip time (RTT)
+	int64_t rtt = current_time - originate_timestamp;
+
+	// HRT to AGENT
+	int64_t offset_1 = (received_timestamp - originate_timestamp) - (rtt / 2);
+	int64_t offset_2 = (transmit_timestamp - current_time) - (rtt / 2);
+
+	session->time_offset = (offset_1 + offset_2) / 2;
+
+	if (args) {
+		Timesync *timesync = static_cast<Timesync *>(args);
+		timesync->update(current_time / 1000, transmit_timestamp, originate_timestamp);
+
+		//fprintf(stderr, "time_offset: %ld, timesync: %ld, diff: %ld\n", session->time_offset/1000, timesync->offset(), session->time_offset/1000 + timesync->offset());
+
+		session->time_offset = -timesync->offset() * 1000; // us -> ns
+	}
+}
+
 MicroddsClient::MicroddsClient(Transport transport, const char *device, int baudrate, const char *host,
-			       const char *port, bool localhost_only)
-	: _localhost_only(localhost_only)
+			       const char *port, bool localhost_only, bool custom_participant, const char *client_namespace) :
+	ModuleParams(nullptr),
+	_localhost_only(localhost_only), _custom_participant(custom_participant),
+	_client_namespace(client_namespace)
 {
 	if (transport == Transport::Serial) {
 
-		int fd = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK);
+		int fd = -1;
 
-		if (fd < 0) {
-			PX4_ERR("open %s failed (%i)", device, errno);
+		for (int attempt = 0; attempt < 3; attempt++) {
+			fd = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK);
+
+			if (fd < 0) {
+				PX4_ERR("open %s failed (%i)", device, errno);
+				// sleep before trying again
+				usleep(1'000'000);
+
+			} else {
+				break;
+			}
 		}
 
 		_transport_serial = new uxrSerialTransport();
 
 		if (fd >= 0 && setBaudrate(fd, baudrate) == 0 && _transport_serial) {
-			if (uxr_init_serial_transport(_transport_serial, fd, 0, 1)) {
+			// TODO:
+			uint8_t remote_addr = 0; // Identifier of the Agent in the connection
+			uint8_t local_addr = 1; // Identifier of the Client in the serial connection
+
+			if (uxr_init_serial_transport(_transport_serial, fd, remote_addr, local_addr)) {
 				_comm = &_transport_serial->comm;
 				_fd = fd;
 
@@ -77,7 +120,7 @@ MicroddsClient::MicroddsClient(Transport transport, const char *device, int baud
 
 	} else if (transport == Transport::Udp) {
 
-#if defined(CONFIG_NET) || defined(__PX4_POSIX)
+#if defined(MICRODDS_CLIENT_UDP)
 		_transport_udp = new uxrUDPTransport();
 
 		if (_transport_udp) {
@@ -127,8 +170,6 @@ void MicroddsClient::run()
 		return;
 	}
 
-	int polling_topic_sub = orb_subscribe(ORB_ID(vehicle_imu));
-
 	while (!should_exit()) {
 		bool got_response = false;
 
@@ -142,58 +183,104 @@ void MicroddsClient::run()
 		}
 
 		// Session
-		uxrSession session;
-		uxr_init_session(&session, _comm, 0xAAAABBBB);
+		// The key identifier of the Client. All Clients connected to an Agent must have a different key.
+		const uint32_t key = (uint32_t)_param_xrce_key.get();
 
+		if (key == 0) {
+			PX4_ERR("session key must be different from zero");
+			return;
+		}
+
+		uxrSession session;
+		uxr_init_session(&session, _comm, key);
+
+		// void uxr_create_session_retries(uxrSession* session, size_t retries);
 		if (!uxr_create_session(&session)) {
 			PX4_ERR("uxr_create_session failed");
 			return;
 		}
 
+		// TODO: uxr_set_status_callback
+
 		// Streams
 		// Reliable for setup, afterwards best-effort to send the data (important: need to create all 4 streams)
 		uint8_t output_reliable_stream_buffer[BUFFER_SIZE] {};
-		uxrStreamId reliable_out = uxr_create_output_reliable_stream(&session, output_reliable_stream_buffer, BUFFER_SIZE,
-					   STREAM_HISTORY);
-		uint8_t output_data_stream_buffer[1024] {};
-		uxrStreamId data_out = uxr_create_output_best_effort_stream(&session, output_data_stream_buffer,
-				       sizeof(output_data_stream_buffer));
+		uxrStreamId reliable_out = uxr_create_output_reliable_stream(&session, output_reliable_stream_buffer,
+					   sizeof(output_reliable_stream_buffer), STREAM_HISTORY);
+
+		uint8_t output_data_stream_buffer[2048] {};
+		uxrStreamId best_effort_out = uxr_create_output_best_effort_stream(&session, output_data_stream_buffer,
+					      sizeof(output_data_stream_buffer));
 
 		uint8_t input_reliable_stream_buffer[BUFFER_SIZE] {};
-		uxr_create_input_reliable_stream(&session, input_reliable_stream_buffer, BUFFER_SIZE, STREAM_HISTORY);
-		uxrStreamId input_stream = uxr_create_input_best_effort_stream(&session);
+		uxrStreamId reliable_in = uxr_create_input_reliable_stream(&session, input_reliable_stream_buffer,
+					  sizeof(input_reliable_stream_buffer),
+					  STREAM_HISTORY);
+		(void)reliable_in;
+
+		uxrStreamId best_effort_in = uxr_create_input_best_effort_stream(&session);
+		(void)best_effort_in;
 
 		// Create entities
 		uxrObjectId participant_id = uxr_object_id(0x01, UXR_PARTICIPANT_ID);
-		const char *participant_xml = _localhost_only ?
-					      "<dds>"
-					      "<profiles>"
-					      "<transport_descriptors>"
-					      "<transport_descriptor>"
-					      "<transport_id>udp_localhost</transport_id>"
-					      "<type>UDPv4</type>"
-					      "<interfaceWhiteList><address>127.0.0.1</address></interfaceWhiteList>"
-					      "</transport_descriptor>"
-					      "</transport_descriptors>"
-					      "</profiles>"
-					      "<participant>"
-					      "<rtps>"
-					      "<name>default_xrce_participant</name>"
-					      "<useBuiltinTransports>false</useBuiltinTransports>"
-					      "<userTransports><transport_id>udp_localhost</transport_id></userTransports>"
-					      "</rtps>"
-					      "</participant>"
-					      "</dds>"
-					      :
-					      "<dds>"
-					      "<participant>"
-					      "<rtps>"
-					      "<name>default_xrce_participant</name>"
-					      "</rtps>"
-					      "</participant>"
-					      "</dds>" ;
-		uint16_t participant_req = uxr_buffer_create_participant_xml(&session, reliable_out, participant_id, 0,
-					   participant_xml, UXR_REPLACE);
+
+		uint16_t domain_id = _param_xrce_dds_dom_id.get();
+
+		// const char *participant_name = "px4_micro_xrce_dds";
+		// uint16_t participant_req = uxr_buffer_create_participant_bin(&session, reliable_out, participant_id, domain_id,
+		// 			   participant_name, UXR_REPLACE);
+
+		char participant_xml[PARTICIPANT_XML_SIZE];
+		int ret = snprintf(participant_xml, PARTICIPANT_XML_SIZE, "%s<name>%s/px4_micro_xrce_dds</name>%s",
+				   _localhost_only ?
+				   "<dds>"
+				   "<profiles>"
+				   "<transport_descriptors>"
+				   "<transport_descriptor>"
+				   "<transport_id>udp_localhost</transport_id>"
+				   "<type>UDPv4</type>"
+				   "<interfaceWhiteList><address>127.0.0.1</address></interfaceWhiteList>"
+				   "</transport_descriptor>"
+				   "</transport_descriptors>"
+				   "</profiles>"
+				   "<participant>"
+				   "<rtps>"
+				   :
+				   "<dds>"
+				   "<participant>"
+				   "<rtps>",
+				   _client_namespace != nullptr ?
+				   _client_namespace
+				   :
+				   "",
+				   _localhost_only ?
+				   "<useBuiltinTransports>false</useBuiltinTransports>"
+				   "<userTransports><transport_id>udp_localhost</transport_id></userTransports>"
+				   "</rtps>"
+				   "</participant>"
+				   "</dds>"
+				   :
+				   "</rtps>"
+				   "</participant>"
+				   "</dds>"
+				  );
+
+		if (ret < 0 || ret >= TOPIC_NAME_SIZE) {
+			PX4_ERR("create entities failed: namespace too long");
+			return;
+		}
+
+
+		uint16_t participant_req{};
+
+		if (_custom_participant) {
+			participant_req = uxr_buffer_create_participant_ref(&session, reliable_out, participant_id, domain_id,
+					  "px4_participant", UXR_REPLACE);
+
+		} else {
+			participant_req = uxr_buffer_create_participant_xml(&session, reliable_out, participant_id, domain_id,
+					  participant_xml, UXR_REPLACE);
+		}
 
 		uint8_t request_status;
 
@@ -202,69 +289,60 @@ void MicroddsClient::run()
 			return;
 		}
 
-		if (!_subs->init(&session, reliable_out, participant_id)) {
-			PX4_ERR("subs init failed");
-			return;
-		}
-
-		if (!_pubs->init(&session, reliable_out, input_stream, participant_id)) {
+		if (!_pubs->init(&session, reliable_out, reliable_in, best_effort_in, participant_id, _client_namespace)) {
 			PX4_ERR("pubs init failed");
 			return;
 		}
 
 		_connected = true;
 
+		// Set time-callback.
+		uxr_set_time_callback(&session, on_time, &_timesync);
+
+		// Synchronize with the Agent
+		bool synchronized = false;
+
+		while (!synchronized) {
+			synchronized = uxr_sync_session(&session, 1000);
+
+			if (synchronized) {
+				PX4_INFO("synchronized with time offset %-5" PRId64 "us", session.time_offset / 1000);
+				//sleep(1);
+
+			} else {
+				usleep(10000);
+			}
+		}
+
+		hrt_abstime last_sync_session = 0;
 		hrt_abstime last_status_update = hrt_absolute_time();
 		hrt_abstime last_ping = hrt_absolute_time();
 		int num_pings_missed = 0;
 		bool had_ping_reply = false;
 		uint32_t last_num_payload_sent{};
 		uint32_t last_num_payload_received{};
-		bool error_printed = false;
-		hrt_abstime last_read = hrt_absolute_time();
 
 		while (!should_exit() && _connected) {
-			px4_pollfd_struct_t fds[1];
-			fds[0].fd = polling_topic_sub;
-			fds[0].events = POLLIN;
-			// we could poll on the uart/udp fd as well (on nuttx)
-			int pret = px4_poll(fds, 1, 20);
 
-			if (pret < 0) {
-				if (!error_printed) {
-					PX4_ERR("poll failed (%i)", pret);
-					error_printed = true;
-				}
+			_subs->update(&session, reliable_out, best_effort_out, participant_id, _client_namespace);
 
-			} else if (pret != 0) {
-				if (fds[0].revents & POLLIN) {
-					vehicle_imu_s data;
-					orb_copy(ORB_ID(vehicle_imu), polling_topic_sub, &data);
+			uxr_run_session_timeout(&session, 0);
+
+			// time sync session
+			if (hrt_elapsed_time(&last_sync_session) > 1_s) {
+				if (uxr_sync_session(&session, 100)) {
+					//PX4_INFO("synchronized with time offset %-5" PRId64 "ns", session.time_offset);
+					last_sync_session = hrt_absolute_time();
 				}
 			}
 
-			_subs->update(data_out);
-
-			hrt_abstime read_start = hrt_absolute_time();
-
-			if (read_start - last_read > 5_ms) {
-				last_read = read_start;
-
-				// Read as long as there's data or until a timeout
-				pollfd fd_read;
-				fd_read.fd = _fd;
-				fd_read.events = POLLIN;
-
-				do {
-					uxr_run_session_timeout(&session, 0);
-
-					if (session.on_pong_flag == 1 /* PONG_IN_SESSION_STATUS */) { // Check for a ping response
-						had_ping_reply = true;
-					}
-				} while (poll(&fd_read, 1, 0) > 0 && hrt_absolute_time() - read_start < 2_ms);
+			// Check for a ping response
+			/* PONG_IN_SESSION_STATUS */
+			if (session.on_pong_flag == 1) {
+				had_ping_reply = true;
 			}
 
-			hrt_abstime now = hrt_absolute_time();
+			const hrt_abstime now = hrt_absolute_time();
 
 			if (now - last_status_update > 1_s) {
 				float dt = (now - last_status_update) / 1e6f;
@@ -287,6 +365,7 @@ void MicroddsClient::run()
 				}
 
 				uxr_ping_agent_session(&session, 0, 1);
+
 				had_ping_reply = false;
 			}
 
@@ -294,14 +373,15 @@ void MicroddsClient::run()
 				PX4_INFO("No ping response, disconnecting");
 				_connected = false;
 			}
+
+			px4_usleep(1000);
 		}
 
 		uxr_delete_session_retries(&session, _connected ? 1 : 0);
 		_last_payload_tx_rate = 0;
 		_last_payload_tx_rate = 0;
+		_subs->reset();
 	}
-
-	orb_unsubscribe(polling_topic_sub);
 }
 
 int MicroddsClient::setBaudrate(int fd, unsigned baud)
@@ -332,6 +412,48 @@ int MicroddsClient::setBaudrate(int fd, unsigned baud)
 #endif
 
 	case 921600: speed = B921600; break;
+
+#ifndef B1000000
+#define B1000000 1000000
+#endif
+
+	case 1000000: speed = B1000000; break;
+
+#ifndef B1500000
+#define B1500000 1500000
+#endif
+
+	case 1500000: speed = B1500000; break;
+
+#ifndef B2000000
+#define B2000000 2000000
+#endif
+
+	case 2000000: speed = B2000000; break;
+
+#ifndef B2500000
+#define B2500000 2500000
+#endif
+
+	case 2500000: speed = B2500000; break;
+
+#ifndef B3000000
+#define B3000000 3000000
+#endif
+
+	case 3000000: speed = B3000000; break;
+
+#ifndef B3500000
+#define B3500000 3500000
+#endif
+
+	case 3500000: speed = B3500000; break;
+
+#ifndef B4000000
+#define B4000000 4000000
+#endif
+
+	case 4000000: speed = B4000000; break;
 
 	default:
 		PX4_ERR("ERR: unknown baudrate: %d", baud);
@@ -399,12 +521,6 @@ int MicroddsClient::setBaudrate(int fd, unsigned baud)
 	return 0;
 }
 
-
-int microdds_client_main(int argc, char *argv[])
-{
-	return MicroddsClient::main(argc, argv);
-}
-
 int MicroddsClient::custom_command(int argc, char *argv[])
 {
 	return print_usage("unknown command");
@@ -414,8 +530,8 @@ int MicroddsClient::task_spawn(int argc, char *argv[])
 {
 	_task_id = px4_task_spawn_cmd("microdds_client",
 				      SCHED_DEFAULT,
-				      SCHED_PRIORITY_DEFAULT - 4,
-				      PX4_STACK_ADJUSTED(8000),
+				      SCHED_PRIORITY_DEFAULT,
+				      PX4_STACK_ADJUSTED(10000),
 				      (px4_main_t)&run_trampoline,
 				      (char *const *)argv);
 
@@ -442,14 +558,23 @@ MicroddsClient *MicroddsClient::instantiate(int argc, char *argv[])
 	int ch;
 	const char *myoptarg = nullptr;
 
+#if defined(MICRODDS_CLIENT_UDP)
 	Transport transport = Transport::Udp;
-	const char *device = nullptr;
-	const char *ip = "127.0.0.1";
-	int baudrate = 921600;
-	const char *port = "15555";
-	bool localhost_only = false;
 
-	while ((ch = px4_getopt(argc, argv, "t:d:b:h:p:l", &myoptind, &myoptarg)) != EOF) {
+#else
+	Transport transport = Transport::Serial;
+#endif
+	const char *device = nullptr;
+	int baudrate = 921600;
+
+	const char *port = "8888";
+	bool localhost_only = false;
+	bool custom_participant = false;
+	const char *ip = "127.0.0.1";
+
+	const char *client_namespace = nullptr;//"px4";
+
+	while ((ch = px4_getopt(argc, argv, "t:d:b:h:p:lcn:", &myoptind, &myoptarg)) != EOF) {
 		switch (ch) {
 		case 't':
 			if (!strcmp(myoptarg, "serial")) {
@@ -477,6 +602,8 @@ MicroddsClient *MicroddsClient::instantiate(int argc, char *argv[])
 
 			break;
 
+#if defined(MICRODDS_CLIENT_UDP)
+
 		case 'h':
 			ip = myoptarg;
 			break;
@@ -487,6 +614,15 @@ MicroddsClient *MicroddsClient::instantiate(int argc, char *argv[])
 
 		case 'l':
 			localhost_only = true;
+			break;
+
+		case 'c':
+			custom_participant = true;
+			break;
+#endif // MICRODDS_CLIENT_UDP
+
+		case 'n':
+			client_namespace = myoptarg;
 			break;
 
 		case '?':
@@ -511,7 +647,7 @@ MicroddsClient *MicroddsClient::instantiate(int argc, char *argv[])
 		}
 	}
 
-	return new MicroddsClient(transport, device, baudrate, ip, port, localhost_only);
+	return new MicroddsClient(transport, device, baudrate, ip, port, localhost_only, custom_participant, client_namespace);
 }
 
 int MicroddsClient::print_usage(const char *reason)
@@ -536,9 +672,16 @@ $ microdds_client start -t udp -h 127.0.0.1 -p 15555
 	PRINT_MODULE_USAGE_PARAM_STRING('d', nullptr, "<file:dev>", "serial device", true);
 	PRINT_MODULE_USAGE_PARAM_INT('b', 0, 0, 3000000, "Baudrate (can also be p:<param_name>)", true);
 	PRINT_MODULE_USAGE_PARAM_STRING('h', "127.0.0.1", "<IP>", "Host IP", true);
-	PRINT_MODULE_USAGE_PARAM_INT('p', 15555, 0, 3000000, "Remote Port", true);
+	PRINT_MODULE_USAGE_PARAM_INT('p', 8888, 0, 65535, "Remote Port", true);
 	PRINT_MODULE_USAGE_PARAM_FLAG('l', "Restrict to localhost (use in combination with ROS_LOCALHOST_ONLY=1)", true);
+	PRINT_MODULE_USAGE_PARAM_FLAG('c', "Use custom participant config (profile_name=\"px4_participant\")", true);
+	PRINT_MODULE_USAGE_PARAM_STRING('n', nullptr, nullptr, "Client DDS namespace", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
+}
+
+extern "C" __EXPORT int microdds_client_main(int argc, char *argv[])
+{
+	return MicroddsClient::main(argc, argv);
 }

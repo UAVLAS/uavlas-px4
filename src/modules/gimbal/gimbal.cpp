@@ -250,11 +250,7 @@ static int gimbal_thread_main(int argc, char *argv[])
 					break;
 
 				case InputBase::UpdateResult::UpdatedNotActive:
-					if (already_active) {
-						// No longer active
-						thread_data.last_input_active = -1;
-					}
-
+					// Ignore, input not active
 					break;
 				}
 
@@ -539,7 +535,7 @@ static void usage()
 Mount/gimbal Gimbal control driver. It maps several different input methods (eg. RC or MAVLink) to a configured
 output (eg. AUX channels or MAVLink).
 
-Documentation how to use it is on the [gimbal_control](https://docs.px4.io/master/en/advanced/gimbal_control.html) page.
+Documentation how to use it is on the [gimbal_control](https://docs.px4.io/main/en/advanced/gimbal_control.html) page.
 
 ### Examples
 Test the output by setting a angles (all omitted axes are set to 0):

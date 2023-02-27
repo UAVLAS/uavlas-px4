@@ -128,6 +128,15 @@ RCInput::task_spawn(int argc, char *argv[])
 	device_name = RC_SERIAL_PORT;
 #endif // RC_SERIAL_PORT
 
+#if defined(RC_SERIAL_PORT) && defined(PX4IO_SERIAL_DEVICE)
+
+	// if RC_SERIAL_PORT == PX4IO_SERIAL_DEVICE then don't use it by default if the px4io is running
+	if ((strcmp(RC_SERIAL_PORT, PX4IO_SERIAL_DEVICE) == 0) && (access("/dev/px4io", R_OK) == 0)) {
+		device_name = nullptr;
+	}
+
+#endif // RC_SERIAL_PORT && PX4IO_SERIAL_DEVICE
+
 	while ((ch = px4_getopt(argc, argv, "d:", &myoptind, &myoptarg)) != EOF) {
 		switch (ch) {
 		case 'd':
@@ -743,6 +752,9 @@ void RCInput::Run()
 
 		if (rc_updated) {
 			perf_count(_publish_interval_perf);
+
+			_rc_in.link_quality = -1;
+			_rc_in.rssi_dbm = NAN;
 
 			_to_input_rc.publish(_rc_in);
 

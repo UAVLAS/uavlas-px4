@@ -40,6 +40,8 @@
 
 #include "mavlink_shell.h"
 #include <px4_platform_common/defines.h>
+#include <px4_platform_common/log.h>
+#include <px4_platform_common/posix.h>
 
 #include <unistd.h>
 #include <errno.h>
@@ -112,8 +114,6 @@ int MavlinkShell::start()
 #ifdef __PX4_NUTTX
 	sched_lock();
 #endif /* __PX4_NUTTX */
-	fflush(stdout);
-	fflush(stderr);
 
 #ifdef __PX4_POSIX
 	int remote_in_fd = dup(_shell_fds[0]);	// Input file descriptor for the remote shell

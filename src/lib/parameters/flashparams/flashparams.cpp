@@ -43,6 +43,7 @@
  */
 
 #include <px4_platform_common/defines.h>
+#include <px4_platform_common/log.h>
 #include <px4_platform_common/posix.h>
 #include <px4_platform_common/shutdown.h>
 
@@ -54,7 +55,7 @@
 #include <parameters/param.h>
 
 #include "../uthash/utarray.h"
-#include <parameters/tinybson/tinybson.h>
+#include <lib/tinybson/tinybson.h>
 #include "flashparams.h"
 #include "flashfs.h"
 #include "../param_translation.h"

@@ -33,7 +33,9 @@
 
 add_library(ecl_EKF
 	airspeed_fusion.cpp
-	baro_bias_estimator.cpp
+	auxvel_fusion.cpp
+	baro_height_control.cpp
+	bias_estimator.cpp
 	control.cpp
 	covariance.cpp
 	drag_fusion.cpp
@@ -41,22 +43,32 @@ add_library(ecl_EKF
 	ekf_helper.cpp
 	EKFGSF_yaw.cpp
 	estimator_interface.cpp
+	ev_control.cpp
+	ev_height_control.cpp
+	ev_pos_control.cpp
+	ev_vel_control.cpp
+	ev_yaw_control.cpp
+	fake_height_control.cpp
 	fake_pos_control.cpp
+	gnss_height_control.cpp
 	gps_checks.cpp
 	gps_control.cpp
-	gps_fusion.cpp
 	gps_yaw_fusion.cpp
-	height_fusion.cpp
+	gravity_fusion.cpp
+	height_control.cpp
 	imu_down_sampler.cpp
 	mag_control.cpp
 	mag_fusion.cpp
+	optical_flow_control.cpp
 	optflow_fusion.cpp
+	output_predictor.cpp
 	range_finder_consistency_check.cpp
+	range_height_control.cpp
 	sensor_range_finder.cpp
 	sideslip_fusion.cpp
 	terrain_estimator.cpp
-	utils.cpp
 	vel_pos_fusion.cpp
+	zero_innovation_heading_update.cpp
 	zero_velocity_update.cpp
 )
 

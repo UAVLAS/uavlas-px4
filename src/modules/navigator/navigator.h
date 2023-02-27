@@ -77,6 +77,7 @@
 #include <uORB/topics/vehicle_land_detected.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/mode_completed.h>
 #include <uORB/uORB.h>
 
 using namespace time_literals;
@@ -118,6 +119,14 @@ public:
 	 */
 	void load_fence_from_file(const char *filename);
 
+	/**
+	 * @brief Publish a given specified vehicle command
+	 *
+	 * Sets the target_component of the vehicle command accordingly depending on the
+	 * vehicle command value (e.g. For Camera control, sets target system component id)
+	 *
+	 * @param vcmd Vehicle command to execute
+	 */
 	void publish_vehicle_cmd(vehicle_command_s *vcmd);
 
 	/**
@@ -191,13 +200,6 @@ public:
 	 * @return the distance at which the next waypoint should be used
 	 */
 	float get_acceptance_radius();
-
-	/**
-	 * Get the default altitude acceptance radius (i.e. from parameters)
-	 *
-	 * @return the distance from the target altitude before considering the waypoint reached
-	 */
-	float get_default_altitude_acceptance_radius();
 
 	/**
 	 * Get the altitude acceptance radius
@@ -293,9 +295,9 @@ public:
 	double get_mission_landing_lon() { return _mission.get_landing_lon(); }
 	float  get_mission_landing_alt() { return _mission.get_landing_alt(); }
 
-	// RTL
-	bool mission_landing_required() { return _rtl.get_rtl_type() == RTL::RTL_TYPE_MISSION_LANDING; }
+	float get_mission_landing_loiter_radius() { return _mission.get_landing_loiter_rad(); }
 
+	// RTL
 	bool in_rtl_state() const { return _vstatus.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_RTL; }
 
 	bool abort_landing();
@@ -303,9 +305,10 @@ public:
 	void geofence_breach_check(bool &have_geofence_position_data);
 
 	// Param access
-	float get_loiter_min_alt() const { return _param_mis_ltrmin_alt.get(); }
+	int get_loiter_min_alt() const { return _param_min_ltr_alt.get(); }
+	int get_landing_abort_min_alt() const { return _param_mis_lnd_abrt_alt.get(); }
 	float get_takeoff_min_alt() const { return _param_mis_takeoff_alt.get(); }
-	bool  get_takeoff_required() const { return _param_mis_takeoff_req.get(); }
+	int  get_takeoff_land_required() const { return _para_mis_takeoff_land_req.get(); }
 	float get_yaw_timeout() const { return _param_mis_yaw_tmt.get(); }
 	float get_yaw_threshold() const { return math::radians(_param_mis_yaw_err.get()); }
 	float get_lndmc_alt_max() const { return _param_lndmc_alt_max.get(); }
@@ -319,6 +322,9 @@ public:
 	void release_gimbal_control();
 
 	void 		calculate_breaking_stop(double &lat, double &lon, float &yaw);
+	void        	stop_capturing_images();
+
+	void mode_completed(uint8_t nav_state, uint8_t result = mode_completed_s::RESULT_SUCCESS);
 
 private:
 
@@ -349,6 +355,7 @@ private:
 	uORB::Publication<vehicle_command_ack_s>	_vehicle_cmd_ack_pub{ORB_ID(vehicle_command_ack)};
 	uORB::Publication<vehicle_command_s>		_vehicle_cmd_pub{ORB_ID(vehicle_command)};
 	uORB::Publication<vehicle_roi_s>		_vehicle_roi_pub{ORB_ID(vehicle_roi)};
+	uORB::Publication<mode_completed_s> _mode_completed_pub{ORB_ID(mode_completed)};
 
 	orb_advert_t	_mavlink_log_pub{nullptr};	/**< the uORB advert to send messages over mavlink */
 
@@ -373,9 +380,7 @@ private:
 	perf_counter_t	_loop_perf;			/**< loop performance counter */
 
 	Geofence	_geofence;			/**< class that handles the geofence */
-
 	GeofenceBreachAvoidance _gf_breach_avoidance;
-
 	hrt_abstime _last_geofence_check = 0;
 
 	bool		_geofence_violation_warning_sent{false};	/**< prevents spaming to mavlink */
@@ -414,6 +419,9 @@ private:
 
 	traffic_buffer_s _traffic_buffer{};
 
+	bool _is_capturing_images{false}; // keep track if we need to stop capturing images
+
+
 	// update subscriptions
 	void params_update();
 
@@ -430,6 +438,7 @@ private:
 	void publish_vehicle_command_ack(const vehicle_command_s &cmd, uint8_t result);
 
 	bool geofence_allows_position(const vehicle_global_position_s &pos);
+
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::NAV_LOITER_RAD>)   _param_nav_loiter_rad,	/**< loiter radius for fixedwing */
 		(ParamFloat<px4::params::NAV_ACC_RAD>)      _param_nav_acc_rad,		/**< acceptance for takeoff */
@@ -441,15 +450,15 @@ private:
 		(ParamInt<px4::params::NAV_TRAFF_AVOID>)    _param_nav_traff_avoid,	/**< avoiding other aircraft is enabled */
 		(ParamFloat<px4::params::NAV_TRAFF_A_RADU>) _param_nav_traff_a_radu,	/**< avoidance Distance Unmanned*/
 		(ParamFloat<px4::params::NAV_TRAFF_A_RADM>) _param_nav_traff_a_radm,	/**< avoidance Distance Manned*/
+		(ParamFloat<px4::params::NAV_MIN_LTR_ALT>)   _param_min_ltr_alt,	/**< minimum altitude in Loiter mode*/
 
-		// non-navigator parameters
-		// Mission (MIS_*)
-		(ParamFloat<px4::params::MIS_LTRMIN_ALT>)  _param_mis_ltrmin_alt,
+		// non-navigator parameters: Mission (MIS_*)
 		(ParamFloat<px4::params::MIS_TAKEOFF_ALT>) _param_mis_takeoff_alt,
-		(ParamBool<px4::params::MIS_TAKEOFF_REQ>)  _param_mis_takeoff_req,
+		(ParamInt<px4::params::MIS_TKO_LAND_REQ>)  _para_mis_takeoff_land_req,
 		(ParamFloat<px4::params::MIS_YAW_TMT>)     _param_mis_yaw_tmt,
 		(ParamFloat<px4::params::MIS_YAW_ERR>)     _param_mis_yaw_err,
-		(ParamFloat<px4::params::LNDMC_ALT_MAX>)   _param_lndmc_alt_max
-
+		(ParamFloat<px4::params::MIS_PD_TO>)       _param_mis_payload_delivery_timeout,
+		(ParamFloat<px4::params::LNDMC_ALT_MAX>)   _param_lndmc_alt_max,
+		(ParamInt<px4::params::MIS_LND_ABRT_ALT>)  _param_mis_lnd_abrt_alt
 	)
 };
