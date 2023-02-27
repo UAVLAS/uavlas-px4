@@ -18,6 +18,7 @@ jobs:
           ark_can-gps,
           ark_can-rtk-gps,
           ark_cannode,
+          ark_fmu-v6x,
           atl_mantis-edu,
           av_x-v1,
           bitcraze_crazyflie,
@@ -34,8 +35,10 @@ jobs:
           holybro_kakutef7,
           holybro_kakuteh7,
           holybro_pix32v5,
-          matek_h743-slim,
           matek_gnss-m9n-f4,
+          matek_h743,
+          matek_h743-mini,
+          matek_h743-slim,
           modalai_fc-v1,
           modalai_fc-v2,
           mro_ctrl-zero-f7,
@@ -50,8 +53,7 @@ jobs:
           nxp_fmurt1062-v1,
           nxp_ucans32k146,
           omnibus_f4sd,
-          raspberrypi_pico,
-           px4_fmu-v2,
+          px4_fmu-v2,
           px4_fmu-v3,
           px4_fmu-v4,
           px4_fmu-v4pro,
@@ -60,6 +62,7 @@ jobs:
           px4_fmu-v6c,
           px4_fmu-v6u,
           px4_fmu-v6x,
+          raspberrypi_pico,
           sky-drones_smartap-airlink,
           spracing_h7extreme,
           uvify_core
@@ -91,7 +94,6 @@ jobs:
           echo "hash_dir = false" >> ~/.ccache/ccache.conf
           ccache -s
           ccache -z
-
     - name: make all_variants_${{matrix.config}}
       run: make all_variants_${{matrix.config}}
       timeout-minutes: 45
