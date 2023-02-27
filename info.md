@@ -1,7 +1,6 @@
 # PX4 Stack with UAVLAS devices support
 ## Changes:
-* Need to update ULSTools to use it update !
-* Mavlink2 support added (PX4 tested)
-* Precision of system improved
+* Mavlink2 support fix (PX4 tested)
+* Update from PX4 stable v1.13.2
 * Bugs fixed
 
